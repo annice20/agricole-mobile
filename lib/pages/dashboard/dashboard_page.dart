@@ -125,7 +125,6 @@ class _DashboardPageState extends State<DashboardPage> {
       final nomFichier = 'rapport-agricole-national-$now.pdf';
 
       if (kIsWeb) {
-        // Téléchargement navigateur
         final blob = html.Blob([bytes], 'application/pdf');
         final url = html.Url.createObjectUrlFromBlob(blob);
         final anchor = html.document.createElement('a') as html.AnchorElement
@@ -134,7 +133,40 @@ class _DashboardPageState extends State<DashboardPage> {
           ..click();
         html.Url.revokeObjectUrl(url);
       } else {
-        // Sauvegarde sur téléphone Android/iOS
+        final dir = await getApplicationDocumentsDirectory();
+        final file = File('${dir.path}/$nomFichier');
+        await file.writeAsBytes(bytes);
+        _showToast("Rapport sauvegardé : ${file.path}");
+        return;
+      }
+
+      _showToast("Rapport téléchargé avec succès.");
+    } on ApiException catch (e) {
+      _showToast(e.message, isError: true);
+    } catch (e) {
+      _showToast("Impossible de générer le rapport PDF", isError: true);
+    } finally {
+      if (mounted) setState(() => _exportLoading = false);
+    }
+  }
+
+  Future<void> _handleExportPDFRegional() async {
+    setState(() => _exportLoading = true);
+    _showToast("Génération du rapport PDF en cours...");
+    try {
+      final bytes = await _api.getBytes("/rapports/regional/pdf");
+      final now = DateTime.now().toIso8601String().substring(0, 10);
+      final nomFichier = 'rapport-agricole-regional-$now.pdf';
+
+      if (kIsWeb) {
+        final blob = html.Blob([bytes], 'application/pdf');
+        final url = html.Url.createObjectUrlFromBlob(blob);
+        final anchor = html.document.createElement('a') as html.AnchorElement
+          ..href = url
+          ..setAttribute('download', nomFichier)
+          ..click();
+        html.Url.revokeObjectUrl(url);
+      } else {
         final dir = await getApplicationDocumentsDirectory();
         final file = File('${dir.path}/$nomFichier');
         await file.writeAsBytes(bytes);
@@ -176,7 +208,6 @@ class _DashboardPageState extends State<DashboardPage> {
 
   @override
   Widget build(BuildContext context) {
-    // ── Chargement ─────────────────────────────────────────────────
     if (_loading) {
       return AppLayout(
         currentRoute: "/dashboard",
@@ -200,7 +231,6 @@ class _DashboardPageState extends State<DashboardPage> {
       );
     }
 
-    // ── Erreur ──────────────────────────────────────────────────────
     if (_stats == null) {
       return AppLayout(
         currentRoute: "/dashboard",
@@ -248,7 +278,6 @@ class _DashboardPageState extends State<DashboardPage> {
       );
     }
 
-    // ── Contenu principal ───────────────────────────────────────────
     final stats = _stats!;
     final totalEngagements = stats.programmes + stats.distributions;
     final tauxProgrammes = totalEngagements > 0
@@ -265,7 +294,6 @@ class _DashboardPageState extends State<DashboardPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // ── En-tête ──────────────────────────────────────────
             const SizedBox(height: 8),
             Text(
               _isResponsable
@@ -290,7 +318,6 @@ class _DashboardPageState extends State<DashboardPage> {
             ),
             const SizedBox(height: 24),
 
-            // ── KPI Cards ────────────────────────────────────────
             GridView.count(
               crossAxisCount: 2,
               shrinkWrap: true,
@@ -329,7 +356,6 @@ class _DashboardPageState extends State<DashboardPage> {
             ),
             const SizedBox(height: 20),
 
-            // ── Répartition ──────────────────────────────────────
             _Card(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -365,7 +391,6 @@ class _DashboardPageState extends State<DashboardPage> {
             ),
             const SizedBox(height: 16),
 
-            // ── Densité régionale ────────────────────────────────
             _Card(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -472,27 +497,29 @@ class _DashboardPageState extends State<DashboardPage> {
             ),
             const SizedBox(height: 16),
 
-            // ── Export PDF — admin national uniquement ────────────
-            if (_isAdmin)
+            // ── Export PDF — admin national et responsable régional ────
+            if (_isAdmin || _isResponsable)
               _Card(
                 child: Row(
                   children: [
-                    const Expanded(
+                    Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Row(
                             children: [
-                              Icon(
+                              const Icon(
                                 Icons.description,
                                 color: Color(0xFF14532D),
                                 size: 20,
                               ),
-                              SizedBox(width: 8),
+                              const SizedBox(width: 8),
                               Flexible(
                                 child: Text(
-                                  "Génération de Rapports Agricoles Nationaux",
-                                  style: TextStyle(
+                                  _isAdmin
+                                      ? "Génération de Rapports Agricoles Nationaux"
+                                      : "Génération de Rapport Régional",
+                                  style: const TextStyle(
                                     fontWeight: FontWeight.w800,
                                     color: Color(0xFF14532D),
                                     fontSize: 13,
@@ -501,10 +528,12 @@ class _DashboardPageState extends State<DashboardPage> {
                               ),
                             ],
                           ),
-                          SizedBox(height: 4),
+                          const SizedBox(height: 4),
                           Text(
-                            "Extraction automatisée des données pour archivage légal.",
-                            style: TextStyle(
+                            _isAdmin
+                                ? "Extraction automatisée des données pour archivage légal."
+                                : "Extraction automatisée des indicateurs de votre région.",
+                            style: const TextStyle(
                               fontSize: 11,
                               color: Color(0xFF15803D),
                             ),
@@ -514,7 +543,11 @@ class _DashboardPageState extends State<DashboardPage> {
                     ),
                     const SizedBox(width: 12),
                     ElevatedButton.icon(
-                      onPressed: _exportLoading ? null : _handleExportPDF,
+                      onPressed: _exportLoading
+                          ? null
+                          : (_isAdmin
+                              ? _handleExportPDF
+                              : _handleExportPDFRegional),
                       icon: _exportLoading
                           ? const SizedBox(
                               width: 14,
